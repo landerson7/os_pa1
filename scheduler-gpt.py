@@ -1,18 +1,14 @@
+import sys
+
 class Process:
     def __init__(self, pid, arrival_time, execution_time):
-        self.pid = pid  # Process ID
-        self.arrival_time = arrival_time  # Arrival time
-        self.execution_time = execution_time  # Burst time (execution time)
-        self.remaining_time = execution_time  # Remaining burst time
-        self.status = 'new'  # Process status: new, ready, running, terminated
-        self.response_time = -1  # Time from arrival to first execution
-        self.waiting_time = 0  # Total time spent waiting
-        self.turnaround_time = 0  # Total time from arrival to completion
-        self.cpu_usage = 0  # Total CPU time used so far
-    
-    def update_status(self, new_status):
-        self.status = new_status
-
+        self.pid = pid
+        self.arrival_time = arrival_time
+        self.execution_time = execution_time
+        self.remaining_time = execution_time
+        self.first_response_time = None
+        self.waiting_time = 0
+        self.turnaround_time = 0
 
 def fifo_scheduler(process_list):
     """
@@ -116,102 +112,143 @@ def sjf_scheduler(process_list):
     for process in process_list:
         print(f"{process.pid} wait {process.waiting_time:4} turnaround {process.turnaround_time:4} response {process.response_time:4}")
 
-
-def round_robin_scheduler(process_list, quantum):
+def round_robin_scheduler(process_list, runfor, quantum, outfile):
     """
-    Round Robin (RR) scheduling algorithm.
-    Each process is given a fixed time quantum for execution.
+    Round Robin scheduling algorithm with a time slice (quantum).
     """
-    print(f"{len(process_list)} processes")
-    print("Using Round Robin")
-    print(f"Quantum {quantum}")
-
-    # Sort processes by arrival time initially
-    process_list.sort(key=lambda p: p.arrival_time)
+    outfile.write(f"{len(process_list)} processes\n")
+    outfile.write(f"Using Round-Robin\n")
+    outfile.write(f"Quantum   {quantum}\n\n")
 
     current_time = 0
-    queue = []  # A queue to hold processes that are ready to execute
+    ready_queue = []
     completed_processes = []
-    idle_time = 0
+    arrived_processes = []
 
-    # Keep track of when each process first starts executing
-    first_execution = {p.pid: None for p in process_list}
+    total_processes = len(process_list)
 
-    while process_list or queue:
-        # Add new processes that have arrived by the current time to the queue
-        while process_list and process_list[0].arrival_time <= current_time:
-            new_process = process_list.pop(0)
-            queue.append(new_process)
-            print(f"Time {current_time:4}: {new_process.pid} arrived")
+    # Process list sorted by arrival time
+    process_list = sorted(process_list, key=lambda x: x.arrival_time)
 
-        # If no processes are ready, the CPU is idle
-        if not queue:
-            print(f"Time {current_time:4}: Idle")
-            idle_time += 1
-            current_time += 1
-            continue
+    # Main loop
+    while current_time < runfor and len(completed_processes) < total_processes:
+        # Check for new arrivals
+        for process in process_list:
+            if process.arrival_time == current_time and process.pid not in arrived_processes:
+                ready_queue.append(process)
+                arrived_processes.append(process.pid)
+                outfile.write(f"Time {current_time:4} : {process.pid} arrived\n")
 
-        # Select the first process in the queue
-        current_process = queue.pop(0)
+        if ready_queue:
+            current_process = ready_queue.pop(0)
 
-        # If the process hasn't been executed yet, log its start time (response time)
-        if first_execution[current_process.pid] is None:
-            first_execution[current_process.pid] = current_time
-            current_process.response_time = current_time - current_process.arrival_time
+            # If the process is running for the first time
+            if current_process.first_response_time is None:
+                current_process.first_response_time = current_time - current_process.arrival_time
 
-        print(f"Time {current_time:4}: {current_process.pid} selected (remaining burst {current_process.remaining_time})")
+            run_time = min(current_process.remaining_time, quantum)
+            outfile.write(f"Time {current_time:4} : {current_process.pid} selected (burst {current_process.remaining_time:4})\n")
 
-        # Process execution: Execute the process for a time slice (quantum) or until completion, whichever comes first
-        if current_process.remaining_time <= quantum:
-            # Process completes within this time slice
-            current_time += current_process.remaining_time
-            current_process.cpu_usage += current_process.remaining_time
-            current_process.remaining_time = 0
-            current_process.turnaround_time = current_time - current_process.arrival_time
-            current_process.waiting_time = current_process.turnaround_time - current_process.execution_time
-            print(f"Time {current_time:4}: {current_process.pid} finished")
-            completed_processes.append(current_process)
+            # Advance current_time
+            current_time += run_time
+
+            # Decrease the remaining time
+            current_process.remaining_time -= run_time
+
+            # Check for new arrivals during the process's run time
+            for t in range(current_time - run_time + 1, current_time):
+                for process in process_list:
+                    if process.arrival_time == t and process.pid not in arrived_processes:
+                        ready_queue.append(process)
+                        arrived_processes.append(process.pid)
+                        outfile.write(f"Time {t:4} : {process.pid} arrived\n")
+
+            # Check if the process has completed
+            if current_process.remaining_time == 0:
+                current_process.turnaround_time = current_time - current_process.arrival_time
+                current_process.waiting_time = current_process.turnaround_time - current_process.execution_time
+                completed_processes.append(current_process.pid)
+                outfile.write(f"Time {current_time:4} : {current_process.pid} finished\n")
+            else:
+                # Re-add the process to the ready queue
+                ready_queue.append(current_process)
         else:
-            # Process is preempted after using the quantum
-            current_time += quantum
-            current_process.remaining_time -= quantum
-            current_process.cpu_usage += quantum
-            queue.append(current_process)  # Put the process back into the queue for the next round
+            outfile.write(f"Time {current_time:4} : Idle\n")
+            current_time += 1
 
-    # Output the final metrics for each process
-    for process in completed_processes:
-        print(f"{process.pid} wait {process.waiting_time} turnaround {process.turnaround_time} response {process.response_time}")
+    # Fill in idle time if current_time is less than runfor
+    while current_time < runfor:
+        outfile.write(f"Time {current_time:4} : Idle\n")
+        current_time += 1
 
-    # If there was any idle time at the end
-    if idle_time > 0:
-        print(f"Idle for {idle_time} time units")
+    outfile.write(f"Finished at time {runfor}\n\n")
 
+    # Print process stats
+    for process in process_list:
+        outfile.write(f"{process.pid} wait {process.waiting_time:4} turnaround {process.turnaround_time:4} response {process.first_response_time:4}\n")
 
-# Example main function to run the schedulers
+def parse_input_file(input_file_name):
+    parameters = {"processes": []}
+    with open(input_file_name, 'r') as infile:
+        for line in infile:
+            line = line.strip()
+            if line == '' or line.startswith('#'):
+                continue
+            tokens = line.split()
+            if tokens[0] == "processcount":
+                parameters["processcount"] = int(tokens[1])
+            elif tokens[0] == "runfor":
+                parameters["runfor"] = int(tokens[1])
+            elif tokens[0] == "use":
+                parameters["use"] = tokens[1]
+            elif tokens[0] == "process":
+                process_id = tokens[2]
+                arrival_time = int(tokens[4])
+                burst_time = int(tokens[6])
+                process = Process(process_id, arrival_time, burst_time)
+                parameters["processes"].append(process)
+            elif tokens[0] == "quantum":
+                parameters["quantum"] = int(tokens[1])
+
+    # Error handling to check for required keys
+    if "use" not in parameters:
+        print("Error: Missing parameter 'use'")
+        sys.exit(1)
+
+    if parameters["use"] == "rr" and "quantum" not in parameters:
+        print("Error: Missing quantum parameter when use is 'rr'")
+        sys.exit(1)
+
+    if "runfor" not in parameters:
+        print("Error: Missing 'runfor' parameter.")
+        sys.exit(1)
+
+    return parameters
+
+def main():
+    if len(sys.argv) != 2:
+        print("Usage: scheduler-gpt.py <input file>")
+        sys.exit(1)
+
+    input_file_name = sys.argv[1]
+    if not input_file_name.endswith(".in"):
+        print(f"Error: Input file must have .in extension")
+        sys.exit(1)
+
+    output_file_name = input_file_name.replace(".in", ".out")
+
+    parameters = parse_input_file(input_file_name)
+
+    if "processes" in parameters and "runfor" in parameters:
+        with open(output_file_name, 'w') as outfile:
+            if parameters["use"] == 'rr':
+                round_robin_scheduler(parameters["processes"], parameters["runfor"], parameters["quantum"], outfile)
+            else:
+                print(f"Error: Unknown scheduling algorithm '{parameters['use']}'")
+                sys.exit(1)
+    else:
+        print("Error: Missing necessary parameters in input file.")
+        sys.exit(1)
+
 if __name__ == "__main__":
-    # FIFO Scheduler Example
-    fifo_processes = [
-        Process(pid='A', arrival_time=0, execution_time=5),
-        Process(pid='B', arrival_time=1, execution_time=4),
-        Process(pid='C', arrival_time=4, execution_time=2),
-    ]
-    print("FIFO Scheduler Output:")
-    fifo_scheduler(fifo_processes)
-
-    # SJF Scheduler Example
-    print("\nSJF Scheduler Output:")
-    sjf_processes = [
-        Process(pid='A', arrival_time=0, execution_time=5),
-        Process(pid='B', arrival_time=1, execution_time=4),
-        Process(pid='C', arrival_time=4, execution_time=2),
-    ]
-    sjf_scheduler(sjf_processes)
-
-    # Round Robin Scheduler Example with time slice = 2
-    print("\nRound Robin Scheduler Output:")
-    rr_processes = [
-        Process(pid='A', arrival_time=0, execution_time=5),
-        Process(pid='B', arrival_time=1, execution_time=4),
-        Process(pid='C', arrival_time=4, execution_time=2),
-    ]
-    round_robin_scheduler(rr_processes, quantum=2)
+    main()
