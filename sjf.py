@@ -1,6 +1,15 @@
 
 from data_struct import Process
 
+'''
+
+updated from: https://chatgpt.com/share/66fc3c0e-a768-800b-88bf-b2548a602b44
+Used this link for the algorithm, only thing kept was the from data_struct import Process since
+I didn't need the data_struct that this chatgpt prompt generated
+
+'''
+
+
 def parse_input():
     process_list = []
     process_count = 0
