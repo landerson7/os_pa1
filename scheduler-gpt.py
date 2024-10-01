@@ -56,62 +56,87 @@ def fifo_scheduler(process_list):
         print(f"{process.pid} wait {process.waiting_time:4} turnaround {process.turnaround_time:4} response {process.response_time:4}")
 
 
-def sjf_scheduler(process_list):
-    """
-    Preemptive Shortest Job First (SJF) scheduling algorithm.
-    """
-    print(f"{len(process_list)} processes")
-    print("Using preemptive Shortest Job First")
-    
-    # Sort processes by arrival time initially
-    process_list.sort(key=lambda p: p.arrival_time)
 
+def sjf_scheduler(process_list, runfor):
     current_time = 0
     ready_queue = []
-    completed_processes = []
-    current_process = None
+    running_process = None
+    process_dict = {p.pid: p for p in process_list}
 
-    while len(completed_processes) < len(process_list):
-        # Add all processes that have arrived by current_time to the ready queue
-        for process in process_list:
-            if process.arrival_time <= current_time and process not in ready_queue and process not in completed_processes:
-                ready_queue.append(process)
-                print(f"Time {current_time:4}: {process.pid} arrived")
-        
-        # Sort ready queue by remaining time (SJF)
-        ready_queue.sort(key=lambda p: p.remaining_time)
+    # Sort the process list based on arrival time
+    process_list.sort(key=lambda x: x.arrival_time)
 
-        if ready_queue:
-            current_process = ready_queue.pop(0)
-
-            if current_process.response_time == -1:
-                current_process.response_time = current_time - current_process.arrival_time
-
-            print(f"Time {current_time:4}: {current_process.pid} selected (burst {current_process.remaining_time:4})")
-            
-            # Run the process for 1 unit of time
-            process_start_time = current_time
-            current_time += 1
-            current_process.remaining_time -= 1
-
-            if current_process.remaining_time == 0:
-                current_process.turnaround_time = current_time - current_process.arrival_time
-                current_process.waiting_time = current_process.turnaround_time - current_process.execution_time
-                completed_processes.append(current_process)
-                print(f"Time {current_time:4}: {current_process.pid} finished")
-        else:
-            print(f"Time {current_time:4}: Idle")
-            current_time += 1
-
-    while current_time < 20:
-        print(f"Time {current_time:4}: Idle")
-        current_time += 1
+    # For statistics
+    total_processes = len(process_list)
     
-    print(f"Finished at time {current_time}")
-    print()
-    for process in process_list:
-        print(f"{process.pid} wait {process.waiting_time:4} turnaround {process.turnaround_time:4} response {process.response_time:4}")
+    # For output
+    print(f"{total_processes} processes")
+    print("Using preemptive Shortest Job First")
 
+    # We need to simulate time from 0 to runfor -1
+    while current_time < runfor:
+        # List to hold events at this time
+        time_events = []
+        # 1. Check for new arrivals at current_time
+        arrivals = [p for p in process_list if p.arrival_time == current_time]
+        for process in arrivals:
+            time_events.append(f"Time {current_time:3d} : {process.pid} arrived")
+            process.status = 'ready'
+            ready_queue.append(process)
+        # Remove arrived processes from process_list
+        process_list = [p for p in process_list if p.arrival_time > current_time]
+
+        # 2. Decide whether to preempt
+        if running_process:
+            # If any process in ready_queue has remaining_time < running_process.remaining_time
+            if ready_queue:
+                shortest_ready = min(ready_queue, key=lambda x: x.remaining_time)
+                if shortest_ready.remaining_time < running_process.remaining_time:
+                    # Preempt
+                    running_process.status = 'ready'
+                    ready_queue.append(running_process)
+                    running_process = None
+
+        # 3. If no process is running, select the next process
+        if not running_process:
+            if ready_queue:
+                # Select process with shortest remaining_time
+                ready_queue.sort(key=lambda x: (x.remaining_time, x.arrival_time))
+                running_process = ready_queue.pop(0)
+                running_process.status = 'running'
+                if running_process.response_time is None:
+                    running_process.response_time = current_time - running_process.arrival_time
+                time_events.append(f"Time {current_time:3d} : {running_process.pid} selected (burst {running_process.remaining_time:3d})")
+
+        # 4. If no process is running and no ready processes, CPU is idle
+        if not running_process and not time_events:
+            time_events.append(f"Time {current_time:3d} : Idle")
+
+        # 5. Execute running process for 1 time unit
+        if running_process:
+            running_process.remaining_time -=1
+            running_process.cpu_usage +=1
+            running_process.program_counter +=1  # Simplified
+            # Check if process finishes at the end of this time unit
+            if running_process.remaining_time == 0:
+                running_process.status = 'terminated'
+                running_process.turnaround_time = current_time +1 - running_process.arrival_time
+                time_events.append(f"Time {current_time +1:3d} : {running_process.pid} finished")
+                running_process = None
+
+        # Output events for this time
+        for event in time_events:
+            print(event)
+
+        current_time +=1
+
+    # At the end
+    print(f"Finished at time {current_time:3d}")
+
+    # Now, output per-process statistics
+    for process in sorted(process_dict.values(), key=lambda x: x.pid):
+        process.waiting_time = process.turnaround_time - process.cpu_usage
+        print(f"\n{process.pid} wait {process.waiting_time:3d} turnaround {process.turnaround_time:3d} response {process.response_time}")
 def round_robin_scheduler(process_list, runfor, quantum, outfile):
     """
     Round Robin scheduling algorithm with a time slice (quantum).
