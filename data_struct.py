@@ -1,3 +1,11 @@
+'''
+
+link to conversation: https://chatgpt.com/share/66fb83f9-7df8-800b-95cf-ba69fdc4ac75
+This link includes the basic data structure and the start of the FIFO algorithm since
+I could not create the fifo scheduler without a basic data structure
+
+'''
+
 class Process:
     def __init__(self, pid, arrival_time, execution_time, priority=0):
         self.pid = pid  # Unique Process ID
