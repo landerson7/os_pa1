@@ -1,5 +1,11 @@
 from data_struct import Process
+'''
 
+link to conversation: https://chatgpt.com/share/66fb83f9-7df8-800b-95cf-ba69fdc4ac75
+This link includes the basic data structure and the start of the FIFO algorithm since
+I could not create the fifo scheduler without a basic data structure
+
+'''
 def fifo_scheduler(process_list):
     """
     First In First Out (FIFO) scheduling algorithm.
