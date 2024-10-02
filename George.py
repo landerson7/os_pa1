@@ -15,79 +15,108 @@ class Process:
         self.status = 'new'
 
 def fifo_scheduler(process_list, runfor, outfile, htmlfile):
+    # Sort the process list by arrival time
+    process_list = sorted(process_list, key=lambda p: p.arrival_time)
+
     html_output = '<pre style="color:black;">\n'
     html_output += '<span style="color:blue;">  {}</span>\n'.format(f"{len(process_list)} processes")
-    html_output += '<span style="color:cyan;">Using First In First Out</span>\n'
+    html_output += '<span style="color:cyan;">Using First-Come First-Served</span>\n'
 
     outfile.write(f"  {len(process_list)} processes\n")
-    outfile.write("Using First In First Out\n")
+    outfile.write("Using First-Come First-Served\n")
 
     current_time = 0
-    
-    for process in process_list:
-        if current_time < process.arrival_time:
-            for t in range(current_time, process.arrival_time):
-                outfile.write(f"Time  {t:2} : Idle\n")
-                html_output += f"Time  {t:2} : <span style='color:blue;'>Idle</span>\n"
-            current_time = process.arrival_time
+    total_processes = len(process_list)
+    ready_queue = []
+    processes_to_arrive = process_list.copy()
+    processes_completed = 0
 
-        outfile.write(f"Time  {current_time:2} : {process.pid} arrived\n")
-        outfile.write(f"Time  {current_time:2} : {process.pid} selected (burst  {process.execution_time:3})\n")
+    # Keep track of all processes by PID
+    processes = {p.pid: p for p in process_list}
 
-        html_output += f"Time  {current_time:2} : <span style='color:green;'>{process.pid} arrived</span>\n"
-        html_output += f"Time  {current_time:2} : <span style='color:green;'>{process.pid} selected (burst {process.execution_time:3})</span>\n"
-        
-        process.waiting_time = current_time - process.arrival_time
-        process.response_time = current_time - process.arrival_time
-        
-        current_time += process.execution_time
-        process.turnaround_time = current_time - process.arrival_time
-        
-        outfile.write(f"Time  {current_time:2} : {process.pid} finished\n")
-        html_output += f"Time  {current_time:2} : <span style='color:red;'>{process.pid} finished</span>\n"
-    
+    while current_time < runfor and processes_completed < total_processes:
+        # Check for new arrivals at the current time
+        while processes_to_arrive and processes_to_arrive[0].arrival_time == current_time:
+            process = processes_to_arrive.pop(0)
+            ready_queue.append(process)
+            outfile.write(f"Time {current_time:3d} : {process.pid} arrived\n")
+            html_output += f"Time {current_time:3d} : <span style='color:green;'>{process.pid} arrived</span>\n"
+
+        if ready_queue:
+            current_process = ready_queue[0]
+            if current_process.status == 'new':
+                outfile.write(f"Time {current_time:3d} : {current_process.pid} selected (burst {current_process.execution_time:3d})\n")
+                html_output += f"Time {current_time:3d} : <span style='color:green;'>{current_process.pid} selected (burst {current_process.execution_time:3d})</span>\n"
+                current_process.response_time = current_time - current_process.arrival_time
+                current_process.waiting_time = current_time - current_process.arrival_time
+                current_process.status = 'running'
+
+            # Run the process until completion
+            run_time = current_process.execution_time
+            prev_time = current_time
+            current_time += run_time
+            current_process.turnaround_time = current_time - current_process.arrival_time
+            current_process.status = 'terminated'
+            outfile.write(f"Time {current_time:3d} : {current_process.pid} finished\n")
+            html_output += f"Time {current_time:3d} : <span style='color:red;'>{current_process.pid} finished</span>\n"
+            ready_queue.pop(0)
+            processes_completed += 1
+
+            # Check for arrivals during the process's execution
+            for t in range(prev_time + 1, current_time):
+                while processes_to_arrive and processes_to_arrive[0].arrival_time == t:
+                    process = processes_to_arrive.pop(0)
+                    ready_queue.append(process)
+                    outfile.write(f"Time {t:3d} : {process.pid} arrived\n")
+                    html_output += f"Time {t:3d} : <span style='color:green;'>{process.pid} arrived</span>\n"
+        else:
+            outfile.write(f"Time {current_time:3d} : Idle\n")
+            html_output += f"Time {current_time:3d} : <span style='color:blue;'>Idle</span>\n"
+            current_time += 1
+
+    # Fill remaining time with idle if necessary
     while current_time < runfor:
-        outfile.write(f"Time  {current_time:2} : Idle\n")
-        html_output += f"Time  {current_time:2} : <span style='color:blue;'>Idle</span>\n"
+        outfile.write(f"Time {current_time:3d} : Idle\n")
+        html_output += f"Time {current_time:3d} : <span style='color:blue;'>Idle</span>\n"
         current_time += 1
 
-    outfile.write(f"Finished at time  {current_time}\n\n")
-    html_output += f"<span style='color:purple;'>Finished at time  {current_time}</span>\n"
+    outfile.write(f"Finished at time  {runfor}\n\n")
+    html_output += f"<span style='color:purple;'>Finished at time  {runfor}</span>\n\n"
 
-    for process in process_list:
-        outfile.write(f"{process.pid} wait  {process.waiting_time:2} turnaround  {process.turnaround_time:2} response  {process.response_time:2}\n")
-        html_output += f"<span style='color:black;'>{process.pid} wait  {process.waiting_time:2} turnaround  {process.turnaround_time:2} response  {process.response_time:2}</span>\n"
+    # Output process statistics
+    def get_pid_number(pid):
+        if pid.startswith('P'):
+            return int(pid[1:])
+        else:
+            return int(pid)
+
+    process_list_sorted = sorted(process_list, key=lambda p: get_pid_number(p.pid))
+    for process in process_list_sorted:
+        outfile.write(f"{process.pid} wait {process.waiting_time:3d} turnaround {process.turnaround_time:3d} response {process.response_time:3d}\n")
+        html_output += f"<span style='color:black;'>{process.pid} wait {process.waiting_time:3d} turnaround {process.turnaround_time:3d} response {process.response_time:3d}</span>\n"
 
     html_output += "</pre>"
     htmlfile.write(html_output)
 
 def sjf_scheduler(process_list, runfor, outfile, htmlfile):
-    """
-    Shortest Job First (Preemptive) scheduling algorithm.
-    """
     current_time = 0
     ready_queue = []
     running_process = None
 
     total_processes = len(process_list)
 
-    # Write the process count and header
     outfile.write(f"  {total_processes} processes\n")
     outfile.write("Using preemptive Shortest Job First\n")
     html_output = '<pre style="color:black;">\n'
     html_output += f"<span style='color:blue;'>  {total_processes} processes</span>\n"
     html_output += "<span style='color:cyan;'>Using preemptive Shortest Job First</span>\n"
 
-    # Keep track of all processes
     processes = {p.pid: p for p in process_list}
-
-    # Processes yet to arrive
     processes_to_arrive = sorted(process_list, key=lambda x: x.arrival_time)
 
     while current_time < runfor:
         time_events = []
 
-        # Check for arrivals
         arrivals = []
         while processes_to_arrive and processes_to_arrive[0].arrival_time == current_time:
             process = processes_to_arrive.pop(0)
@@ -101,7 +130,6 @@ def sjf_scheduler(process_list, runfor, outfile, htmlfile):
 
         if running_process:
             if ready_queue:
-                # Check if there's a process with shorter remaining time
                 shortest_ready = min(ready_queue, key=lambda x: x.remaining_time)
                 if shortest_ready.remaining_time < running_process.remaining_time:
                     running_process.status = 'ready'
@@ -145,7 +173,6 @@ def sjf_scheduler(process_list, runfor, outfile, htmlfile):
 
         current_time += 1
 
-    # Fill idle time if necessary
     while current_time < runfor:
         outfile.write(f"Time {current_time:3d} : Idle\n")
         html_output += f"Time {current_time:3d} : <span style='color:blue;'>Idle</span>\n"
@@ -154,8 +181,14 @@ def sjf_scheduler(process_list, runfor, outfile, htmlfile):
     outfile.write(f"Finished at time {current_time:3d}\n\n")
     html_output += f"<span style='color:purple;'>Finished at time {current_time}</span>\n\n"
 
-    # Output process statistics
-    for process in processes.values():
+    def get_pid_number(pid):
+        if pid.startswith('P'):
+            return int(pid[1:])
+        else:
+            return int(pid)
+
+    process_list_sorted = sorted(processes.values(), key=lambda p: get_pid_number(p.pid))
+    for process in process_list_sorted:
         process.response_time = process.first_response_time if process.first_response_time is not None else 0
         stats = f"{process.pid} wait {process.waiting_time:3d} turnaround {process.turnaround_time:3d} response {process.response_time:3d}\n"
         outfile.write(stats)
@@ -166,7 +199,7 @@ def sjf_scheduler(process_list, runfor, outfile, htmlfile):
 
 def round_robin_scheduler(process_list, runfor, quantum, outfile, htmlfile):
     outfile.write(f"  {len(process_list)} processes\n")
-    outfile.write(f"Using Round-Robin\nQuantum {quantum}\n")
+    outfile.write(f"Using Round-Robin\nQuantum   {quantum}\n\n")
     html_output = '<pre style="color:black;">\n'
     html_output += '<span style="color:blue;">  {}</span>\n'.format(f"{len(process_list)} processes")
     html_output += f"<span style='color:cyan;'>Using Round-Robin</span>\n"
@@ -180,14 +213,15 @@ def round_robin_scheduler(process_list, runfor, quantum, outfile, htmlfile):
 
     process_list = sorted(process_list, key=lambda x: x.arrival_time)
 
-    while current_time < runfor and len(completed_processes) < total_processes:
-        for process in process_list:
-            if process.arrival_time == current_time and process.pid not in arrived_processes:
-                ready_queue.append(process)
-                arrived_processes.append(process.pid)
-                outfile.write(f"  Time {current_time:4} : {process.pid} arrived\n")
-                html_output += f"  Time {current_time:4} : <span style='color:green;'>{process.pid} arrived</span>\n"
+    # Initial arrival of processes at time 0
+    for process in process_list:
+        if process.arrival_time == 0:
+            ready_queue.append(process)
+            arrived_processes.append(process.pid)
+            outfile.write(f"Time {current_time:3d} : {process.pid} arrived\n")
+            html_output += f"Time {current_time:3d} : <span style='color:green;'>{process.pid} arrived</span>\n"
 
+    while current_time < runfor and len(completed_processes) < total_processes:
         if ready_queue:
             current_process = ready_queue.pop(0)
 
@@ -196,47 +230,68 @@ def round_robin_scheduler(process_list, runfor, quantum, outfile, htmlfile):
                 current_process.response_time = current_time - current_process.arrival_time
 
             run_time = min(current_process.remaining_time, quantum)
-            outfile.write(f"  Time {current_time:4} : {current_process.pid} selected (burst {current_process.remaining_time:4})\n")
-            html_output += f"  Time {current_time:4} : <span style='color:green;'>{current_process.pid} selected (burst {current_process.remaining_time:4})</span>\n"
+            outfile.write(f"Time {current_time:3d} : {current_process.pid} selected (burst {current_process.remaining_time:3d})\n")
+            html_output += f"Time {current_time:3d} : <span style='color:green;'>{current_process.pid} selected (burst {current_process.remaining_time:3d})</span>\n"
 
+            prev_time = current_time
             current_time += run_time
             current_process.remaining_time -= run_time
 
-            for t in range(current_time - run_time + 1, current_time):
+            # Check for new arrivals during the process's run time
+            arrivals_during_run = []
+            for t in range(prev_time + 1, current_time + 1):
                 for process in process_list:
                     if process.arrival_time == t and process.pid not in arrived_processes:
-                        ready_queue.append(process)
+                        arrivals_during_run.append(process)
                         arrived_processes.append(process.pid)
-                        outfile.write(f"  Time {t:4} : {process.pid} arrived\n")
-                        html_output += f"  Time {t:4} : <span style='color:green;'>{process.pid} arrived</span>\n"
+                        outfile.write(f"Time {t:3d} : {process.pid} arrived\n")
+                        html_output += f"Time {t:3d} : <span style='color:green;'>{process.pid} arrived</span>\n"
 
+            # Add arrivals to ready queue before adding the preempted process
+            ready_queue.extend(arrivals_during_run)
+
+            # If the process has completed
             if current_process.remaining_time == 0:
                 current_process.turnaround_time = current_time - current_process.arrival_time
                 current_process.waiting_time = current_process.turnaround_time - current_process.execution_time
                 completed_processes.append(current_process.pid)
-                outfile.write(f"  Time {current_time:4} : {current_process.pid} finished\n")
-                html_output += f"  Time {current_time:4} : <span style='color:red;'>{current_process.pid} finished</span>\n"
+                outfile.write(f"Time {current_time:3d} : {current_process.pid} finished\n")
+                html_output += f"Time {current_time:3d} : <span style='color:red;'>{current_process.pid} finished</span>\n"
             else:
+                # Add the preempted process back to the ready queue
                 ready_queue.append(current_process)
         else:
-            outfile.write(f"  Time {current_time:4} : Idle\n")
-            html_output += f"  Time {current_time:4} : <span style='color:blue;'>Idle</span>\n"
+            outfile.write(f"Time {current_time:3d} : Idle\n")
+            html_output += f"Time {current_time:3d} : <span style='color:blue;'>Idle</span>\n"
             current_time += 1
 
+            # Check for new arrivals at the current time
+            for process in process_list:
+                if process.arrival_time == current_time and process.pid not in arrived_processes:
+                    ready_queue.append(process)
+                    arrived_processes.append(process.pid)
+                    outfile.write(f"Time {current_time:3d} : {process.pid} arrived\n")
+                    html_output += f"Time {current_time:3d} : <span style='color:green;'>{process.pid} arrived</span>\n"
+
     while current_time < runfor:
-        outfile.write(f"  Time {current_time:4} : Idle\n")
-        html_output += f"  Time {current_time:4} : <span style='color:blue;'>Idle</span>\n"
+        outfile.write(f"Time {current_time:3d} : Idle\n")
+        html_output += f"Time {current_time:3d} : <span style='color:blue;'>Idle</span>\n"
         current_time += 1
 
-    outfile.write(f"Finished at time {runfor}\n\n")
-    html_output += f"<span style='color:purple;'>Finished at time {runfor}</span>\n\n"
+    outfile.write(f"Finished at time  {runfor}\n\n")
+    html_output += f"<span style='color:purple;'>Finished at time  {runfor}</span>\n\n"
 
-    # Output process statistics
-    for process in process_list:
+    def get_pid_number(pid):
+        if pid.startswith('P'):
+            return int(pid[1:])
+        else:
+            return int(pid)
+
+    process_list_sorted = sorted(process_list, key=lambda p: get_pid_number(p.pid))
+    for process in process_list_sorted:
         process.response_time = process.first_response_time if process.first_response_time is not None else 0
-        stats = f"{process.pid} wait {process.waiting_time:3d} turnaround {process.turnaround_time:3d} response {process.response_time:3d}\n"
-        outfile.write(stats)
-        html_output += f"<span style='color:black;'>{stats.strip()}</span>\n"
+        outfile.write(f"{process.pid} wait {process.waiting_time:3d} turnaround {process.turnaround_time:3d} response {process.response_time:3d}\n")
+        html_output += f"<span style='color:black;'>{process.pid} wait {process.waiting_time:3d} turnaround {process.turnaround_time:3d} response {process.response_time:3d}</span>\n"
 
     html_output += "</pre>"
     htmlfile.write(html_output)
@@ -263,6 +318,8 @@ def parse_input_file(input_file_name):
                 parameters["processes"].append(process)
             elif tokens[0] == "quantum":
                 parameters["quantum"] = int(tokens[1])
+            elif tokens[0] == "end":
+                break
 
     if "use" not in parameters:
         print("Error: Missing parameter 'use'")
